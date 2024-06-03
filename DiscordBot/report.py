@@ -44,6 +44,7 @@ SPECIFIC_ABUSE_STRINGS = {
 
 class State(Enum):
     REPORT_START = auto()
+    DEEPFAKE = auto()
     AWAITING_MESSAGE = auto()
     MESSAGE_IDENTIFIED = auto()
     REPORT_COMPLETE = auto()
@@ -71,6 +72,7 @@ class Report:
         # 1 is Imminent Danger, 2 is Spam, 3 is Nude or Graphic Media, 4 is Disinformation, 5 is Hate speech/harrassment, 6 is Other
         self.abuse_type = None
         self.requires_forwarding = False
+        self.deepfake = False
         self.forward_abuse_string = '' #used to detail the first level abuse
         self.specific_abuse_string = ''#used to detail the second level abuse
         self.keep_AI = True
@@ -114,18 +116,46 @@ class Report:
                 return ["It seems this message was deleted or never existed. Please try again or say `cancel` to cancel."]
 
             # Here we've found the message - it's up to you to decide what to do next!
-            self.state = State.AWAIT_CONTENT_TYPE
+            self.state = State.DEEPFAKE
             self.message = message
             # return ["I found this message:", "```" + message.author.name + ": " + message.content + "```", \
             #         "if you want to report, please specify the type of AI-generated content you see."] \
                 
-            out = ['Does the image contain any people? Do you think it is a deepfake and harmful? If so, please continue reading!\n']
-            out +=    [' You can select from\n1. Imminent Danger\n2. Spam\n3. Nude or Graphic Media\n4. Disinformation\n5. Hate speech/harrassment\n6. Other (including satire, memes, commentary, couterspeech, etc.)\n'] \
-                            + ['Please type the number of the content type you see.\nIf the image has no people in it or is not harmful, then please press 6']
-            
+            # out = ['Does the image contain any people? Do you think it is a deepfake and harmful? If so, please continue reading!\n']
+            # out +=    [' You can select from\n1. Imminent Danger\n2. Spam\n3. Nude or Graphic Media\n4. Disinformation\n5. Hate speech/harrassment\n6. Other (including satire, memes, commentary, couterspeech, etc.)\n'] \
+            #                 + ['Please type the number of the content type you see.\nIf the image has no people in it or is not harmful, then please press 6']
+            out = ['Please tell us why you are reporting this message. You can select from the following options:\n']
+            out += ['1. Harassment/offensive content/hate speech\n2. Disinformation\n3. Political content that is AI-Generated\n4. Scam or Fraud\n5. Immediate Danger/Violent threat/Suicidal content or self-injury\n6. Other (content is safe)']
             
             return out
 
+        if self.state == State.DEEPFAKE:
+            try:
+                selection = int(message.content)
+                # self.abuse_type = selection
+            except:
+                return ["Please type the number of the content type you see."]
+            
+            if selection < 1 or selection > 5:
+                return ["Please type a valid number of the content type you see."]
+
+            if selection == 6:
+                self.state = State.REPORT_COMPLETE
+                self.requires_forwarding = False
+                return ['Thank you for reporting. This content does not violate our policy of AI-generated content, and likely will not be removed. If this content poses a threat or is harmful, please try reporting again in another category.']
+            if selection != 3:
+                self.state = State.REPORT_COMPLETE
+                self.abuse_type = 'NOT_AI'
+                self.forward_abuse_string = 'Non-AI related offensive content ie hate speech, scam, etc.'
+                self.requires_forwarding = True
+                return ['Thank you for reporting. Our content moderation team will review the report, notifying local authorities if necessary.']
+            else:
+                self.state = State.AWAIT_CONTENT_TYPE
+                self.deepfake = True
+                out = ['Please tell us why you are reporting this message. You can select from the following options:\n']
+                out +=  [' You can select from\n1. Imminent Danger\n2. Spam\n3. Nude or Graphic Media\n4. Disinformation\n5. Hate speech/harrassment\n6. Other (including satire, memes, commentary, couterspeech, etc.)\n'] \
+                             + ['Please type the number of the content type you see.\nIf the image has no people in it or is not harmful, then please press 6']
+                return out
             
         # this block determines the type of abuse the user is reporting
         # for numbering see comments in init

@@ -2,7 +2,7 @@ from enum import Enum, auto
 import discord
 import re
 
-# OPTIONS_MESSAGE_1 = 'Is this a deep fake with a person in it? Please respond with yes or no.'
+OPTIONS_MESSAGE_1 = 'Does this message contain imagery that is Harassment/Disinformation/Scam or Fraud/Immediate Danger? \nIf so, type 1. \nIf it contains AI-generated deepfakes of political content, please press 2.'
 OPTIONS_MESSAGE_2 = 'Please select the category that best reflects the image and message content:\n'
 # OPTIONS_MESSAGE_2 += '1. Satire, memes, political commentary\n2. Disinformation\n3. Nudity/Graphic\n4. Imminent danger\n5. Financial Spam\n6. Other spam\n7. Hate speech/harassment\n8. Other'
 OPTIONS_MESSAGE_2 += 'You can select from\n1. Imminent Danger\n2. Spam (financial or other) \n3. Nude or Graphic Media\n4. Disinformation\n5. Hate speech/harrassment\n6. Other (including satire, memes, commentary, couterspeech, etc.)\nPlease type the number of the content type you see.\nIf the image has no people in it or is not harmful, then please press 6'
@@ -39,6 +39,7 @@ SPAM_MESSAGE = {
 class State(Enum):
     REPORT_START = auto()
     AWAITING_COMMAND = auto()
+    DEEPFAKE = auto()
     # AWAITING_PEOPLE_STATE = auto()
     AWAITING_ABUSE_TYPE = auto()
     NUDITY_FLOW = auto()
@@ -71,6 +72,8 @@ class ModReport:
         self.keep_AI = True
         
         self.report_no = None
+        self.delete = False
+        self.blur = False
     
     async def handle_message(self, message, awaiting_mod_dict, caseno_to_info, most_recent):
         '''
@@ -110,17 +113,21 @@ class ModReport:
             
             elif message_content[0].upper() == 'RETRIEVE' and 'MOST RECENT' not in message.content.upper() and 'HIGH PRIORITY' not in message.content.upper():
                 try:
-                    self.state = State.AWAITING_PEOPLE_STATE
+                    # self.state = State.AWAITING_PEOPLE_STATE
+                    
                     case_number = int(message_content[1])
                     case_number = '#' + str(case_number)
                     if case_number in caseno_to_info:
+                        self.state = State.DEEPFAKE
                         package = caseno_to_info[case_number]
                         self.report_no = package[-1]
+                        self.message = package[3]
                         out = []
                         out.append(package[0])
                         if package[1]:
                             out.append(await package[1].to_file())
                         out.append(package[2])
+                        out.append(OPTIONS_MESSAGE_1)
                         #out.append(OPTIONS_MESSAGE_2) - Selena edit
                         return out
                     else:
@@ -129,15 +136,18 @@ class ModReport:
                     return ['Invalid case number.']
             elif message_content[0].upper() == 'RETRIEVE' and 'MOST RECENT' in message.content.upper():
                 if most_recent:
-                    self.state = State.AWAITING_ABUSE_TYPE
+                    # self.state = State.AWAITING_ABUSE_TYPE
+                    self.state = State.DEEPFAKE
                     out = []
                     package = most_recent
                     self.report_no = package[-1]
+                    self.message = package[3]
                     out.append(package[0])
                     if package[1]:
                         out.append(await package[1].to_file())
                     out.append(package[2])
-                    out.append(OPTIONS_MESSAGE_2)
+                    # out.append(OPTIONS_MESSAGE_2)
+                    out.append(OPTIONS_MESSAGE_1)
                     return out
                 else:
                     return ['No cases found.']
@@ -148,15 +158,34 @@ class ModReport:
                         out = []
                         package = awaiting_mod_dict[key][min(awaiting_mod_dict[key].keys())]
                         self.report_no = package[-1]
-                        self.state = State.AWAITING_ABUSE_TYPE
+                        self.message = package[3]
+                        # self.state = State.AWAITING_ABUSE_TYPE
+                        self.state = State.DEEPFAKE
                         out.append(package[0])
                         if package[1]:
                             out.append(await package[1].to_file())
                         out.append(package[2])
-                        out.append(OPTIONS_MESSAGE_2)
+                        # out.append(OPTIONS_MESSAGE_2)
+                        out.append(OPTIONS_MESSAGE_1)
                         return out
                 else:
                     return ['No high priority cases found. Please type `RETRIEVE` followed by a case number, `MOST RECENT`, or `HIGH PRIORITY` to retrieve a case.']
+            else:
+                return ['Invalid command. Please type RETRIEVE followed by a case number, \'MOST RECENT\', or \'HIGH PRIORITY\' to retrieve a case.']
+        
+        if self.state == State.DEEPFAKE:
+            try:
+                selection = int(message.content)
+            except:
+                return ['Please type a valid number of the content type you see.']
+            
+            if selection == 1:
+                self.state = State.REPORT_COMPLETE
+                return ['This content has been forwarded to the appropriate moderator teams for further review. No further action is required.']
+            if selection == 2:
+                self.state = State.AWAITING_ABUSE_TYPE
+                return [OPTIONS_MESSAGE_2]
+            return ['Please type a valid number of the content type you see.']
         
         if self.state == State.AWAITING_ABUSE_TYPE:
             try:
@@ -176,6 +205,9 @@ class ModReport:
                     return [SPAM_OPTIONS_MESSAGE]
                 return BOT_ACTIONS[curr_abuse]
             else:
+                if self.abuse_type == 1:
+                    # await message.delete()
+                    self.delete = True
                 self.state = State.REPORT_COMPLETE
                 curr_abuse = self.abuse_type
                 return BOT_ACTIONS[curr_abuse]
@@ -186,15 +218,25 @@ class ModReport:
             except:
                 return [NUDITY_OPTIONS_MESSAGE]
             
+            if 1 <= selection < 4:
+                self.delete = True
+            
+            
             if self.abuse_type == 3 and selection < 1 or selection > 4:
                 return ["Please type a valid number of the content type you see."]
+            
             elif self.abuse_type == 3:
                 self.state = State.REPORT_COMPLETE
+                if selection == 4:
+                    print('blurred')
+                    self.blur = True
                 return NUDITY_MESSAGE[selection]
             if self.abuse_type == 2 and selection < 1 or selection > 2:
                 return ["Please type a valid number of the content type you see."]
             elif self.abuse_type == 2:
                 self.state = State.REPORT_COMPLETE
+                # await message.delete()
+                self.delete = True
                 return SPAM_MESSAGE[selection]
             # self.state = State.REPORT_COMPLETE
             # return SPAM_MESSAGE[selection]

@@ -12,6 +12,7 @@ from moderator import ModReport
 from PIL import Image, ImageFilter, UnidentifiedImageError
 import io
 from urllib.parse import urlparse
+from image_helpers import *
 
 
 # Set up logging to the console
@@ -41,7 +42,7 @@ class ModBot(discord.Client):
         self.reports = {} # Map from user IDs to the state of their report
         self.mod_reports = {}
         
-        self.awaiting_mod_decisions = {1: {}, 2: {}, 3:{}, 4:{}, 5:{}, 6:{}, 7:{}, 8:{}} # Maps from abuse types to a list of tuples containing report id, the message object, and images
+        self.awaiting_mod_decisions = {1: {}, 2: {}, 3:{}, 4:{}, 5:{}, 6:{}, 'NOT_AI': {}} # Maps from abuse types to a list of tuples containing report id, the message object, and images
         self.caseno_to_info = {} # Maps from report id to a tuple defined below
         self.most_recent = None
         self.deepfake_urls = []
@@ -75,7 +76,7 @@ class ModBot(discord.Client):
         # Ignore messages from the bot 
         if message.author.id == self.user.id:
             return
-        await self.blur_image(message)
+        # await self.blur_image(message)
         # Check if this message was sent in a server ("guild") or if it's a DM
         if message.guild and message.guild.id in self.mod_channels:
             await self.handle_mod_message(message)
@@ -204,7 +205,7 @@ class ModBot(discord.Client):
         if self.mod_reports[author_id].report_complete():
             # print(self.awaiting_mod_decisions)
             # print(self.mod_reports[author_id].abuse_type, self.mod_reports[author_id].report_no)
-            
+            logger.info('HERE2')
             self.awaiting_mod_decisions[self.caseno_to_info[self.mod_reports[author_id].report_no][-2]].pop(self.mod_reports[author_id].report_no)
             self.caseno_to_info.pop(self.mod_reports[author_id].report_no)
             if self.most_recent[5] == self.mod_reports[author_id].report_no:
@@ -213,7 +214,13 @@ class ModBot(discord.Client):
                 for key in self.caseno_to_info:
                     if not self.most_recent or int(self.caseno_to_info[key][-1][1:]) > int(self.most_recent[-1][1:]):
                         self.most_recent = self.caseno_to_info[key]
-            
+            print(self.mod_reports[author_id].blur)
+            if self.mod_reports[author_id].delete:
+                logger.info('HERE1')
+                await self.mod_reports[author_id].message.delete()
+            if self.mod_reports[author_id].blur:
+                logger.info("HERE3")
+                await blur_all_images(self.mod_reports[author_id].message)
             self.mod_reports.pop(author_id)
         
         elif self.mod_reports[author_id].report_cancelled():
@@ -242,96 +249,13 @@ class ModBot(discord.Client):
         This function will blur the image present in a message.
         """
 
-        def is_deepfake(image_url):
-            """
-            This function makes an API call to AIORNOT which checks if the image in the passed url is a deepfake
-            """
-
-            api_url = "https://api.aiornot.com/v1/reports/image"
-            AIORNOT_API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjM1MGUxYjA3LWNlYjctNDMxNS1hNjUyLTU2Mjg0YTk2MzBhMyIsInVzZXJfaWQiOiIzNTBlMWIwNy1jZWI3LTQzMTUtYTY1Mi01NjI4NGE5NjMwYTMiLCJhdWQiOiJhY2Nlc3MiLCJleHAiOjAuMH0.Hyg8WHNEQTi328xxGkM-KrZkoNkopmaJcX9L95iD0qM'
-        
-            headers = {
-                'Authorization': f'Bearer {AIORNOT_API_KEY}',
-                'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-            }
-
-            payload = json.dumps({
-                "object": image_url
-            })
-            try:
-                response = requests.request("POST", api_url, headers=headers, data=payload)
-            except Exception as e:
-                return False, f'An unexpected error occurred: {e}'
-            try:
-                response = response.json()
-            except json.JSONDecodeError as json_err:
-                return False, f'Error decoding JSON response: {json_err}'
-            except Exception as e:
-                return False, f'An unexpected error occurred while decoding JSON: {e}'
-
-            is_deep_fake = response.get("report",{}).get("ai",{}).get("is_detected", False)
-            return is_deep_fake, None
-        
-        def extract_urls(message_content):
-            url_pattern = re.compile(r'(https?://[^\s]+)')
-            urls = url_pattern.findall(message_content)
-            print(urls)
-            return urls
-        
-        def is_image_url(url):
-            try:
-                response = requests.head(url, allow_redirects=True)
-                content_type = response.headers.get('Content-Type')
-                if content_type and content_type.startswith('image/'):
-                    return True, content_type.split('/')[-1]  # Return True and the image extension
-                return False, None
-            except requests.RequestException as e:
-                logger.error(f"Error checking URL content type: {e}")
-                return False, None
-            
-        def process_image_data(image_data, filename, image_url):
-            try:
-                image = Image.open(io.BytesIO(image_data))
-                logger.info('Opened image')
-
-                # Check if image is a deepfake
-                is_deepFake, error_message = is_deepfake(image_url)
-                
-                if is_deepFake:
-                    logger.info("Deepfake Detected")
-                    # Apply a blur filter
-                    blurred_image = image.filter(ImageFilter.GaussianBlur(15))
-                    logger.info('Blurred image')
-
-                    # Save the blurred image to a BytesIO object
-                    blurred_image_bytes = io.BytesIO()
-                    blurred_image.save(blurred_image_bytes, format=image.format)
-                    blurred_image_bytes.seek(0)
-                    logger.info('Saved image')
-
-                    # Create a discord.File from the blurred image
-                    discord_file = discord.File(fp=blurred_image_bytes, filename=f'blurred_{filename}', spoiler=False)
-                    return discord_file
-                logger.error(error_message)
-            except UnidentifiedImageError:
-                logger.error(f"Could not identify image file: {filename}")
-            except Exception as e:
-                logger.error(f"Error processing image: {e}")
-            return None
-        
-        def obfuscate_url(url):
-            return url.replace('.', '[dot]').replace('http', 'hxxp')
-        
         urls = extract_urls(message.content)
-        
+        if message.author.id == self.user.id:
+            return None
+
         if not message.attachments and not urls:
             logger.info('No attachments or urls found')
             return None
-        
-        if message.author.id == self.user.id:
-            return None
-        
         
         original_content = message.content
         blurred_images = []
