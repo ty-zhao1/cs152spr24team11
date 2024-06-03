@@ -169,10 +169,16 @@ class ModBot(discord.Client):
         # Only handle messages sent in the "group-#" channel
         if not message.channel.name == f'group-{self.group_num}':
             return
+        # await message.delete()
         mod_channel = self.mod_channels[message.guild.id]
         package = await self.eval_text(message)
         if package:
             changed, delete = package
+        #     if delete:
+        #         try:
+        #             await message.delete()
+        #         except discord.HTTPException as e:
+        #             logger.error(f"Error deleting message: {e}")
         # # Forward the message to the mod channel
         # mod_channel = self.mod_channels[message.guild.id]
         # await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
@@ -221,6 +227,7 @@ class ModBot(discord.Client):
                         self.most_recent = self.caseno_to_info[key]
 
             if self.mod_reports[author_id].delete:
+                print('here deleting for no reason')
                 await self.mod_reports[author_id].message.delete()
             if self.mod_reports[author_id].blur:
                 await blur_all_images(self.mod_reports[author_id].message)
@@ -236,9 +243,9 @@ class ModBot(discord.Client):
         insert your code here! This will primarily be used in Milestone 3. 
         '''
         # original = deepcopy(message)
-        changed, delete = await self.auto_handle(message)
+        package = await self.auto_handle(message)
         
-        return changed, delete
+        return package
     
     
     async def auto_handle(self, message):
@@ -264,6 +271,8 @@ class ModBot(discord.Client):
         original_content = message.content
         original_author = message.author
         original_author_info = f"Originally sent by {original_author.display_name} ({original_author.mention}). URL's have been obfuscated."
+        
+        
 
         # Check for deepfake images in attachments
         for attachment in message.attachments:
@@ -271,7 +280,10 @@ class ModBot(discord.Client):
                 try:
                 # Get the image data from the attachment
                     image_data = await attachment.read()
+                    print('deleting message')
+                    
                     discord_file, change = process_image_data(image_data, attachment.filename, attachment.url)
+                    
                     edited = edited or change
                     if discord_file:
                         blurred_images.append(discord_file)
@@ -281,7 +293,7 @@ class ModBot(discord.Client):
                         violent_or_adult = True
                 except Exception as e:
                     logger.error(f"Error processing attachment: {e}")
-
+        
         # Check for deepfake images in urls
         for url in urls:
             is_image, extension = is_image_url(url)
@@ -303,30 +315,34 @@ class ModBot(discord.Client):
                 except requests.exceptions.RequestException as e:
                     logger.error(f"Error downloading image from URL: {e}")
        
+        
         # Obfuscate deepfake urls            
         for url in original_image_urls:
             obfuscated_url = obfuscate_url(url)
-            original_content = original_content.replace(url, obfuscated_url)
-        # print('here5')
+            new_content = original_content.replace(url, obfuscated_url)
+
+        
+        
         if edited and (blurred_images or violent_or_adult):
-            print('deleting message')
-            try:
-                await message.delete()
-            except discord.HTTPException as e:
-                logger.error(f"Error deleting message: {e}")
-                return
-            # print('Deleted message')
             delete = True
             logger.info('Deleted message')
             links = '\n'.join([f"[Image {i+1}](<{url}>)" for i, url in enumerate(original_image_urls)])
-            # for url in original_image_urls:
-            #     original_content = original_content.replace(url, f"<{url}>")
+            
+            try:
+                await message.delete()
+            except discord.errors.Forbidden:
+                print(f"Failed to delete message from {message.author} in {message.channel} due to insufficient permissions.")
+            except discord.errors.NotFound:
+                print(f"Message from {message.author} in {message.channel} was not found (possibly already deleted).")
+            except discord.errors.HTTPException as e:
+                print(f"Failed to delete message from {message.author} in {message.channel} due to HTTP error: {e}")
+
             # Send the blurred images with the original message content in the same channel
             try:
                 await message.channel.send(content=original_author_info)
                 if violent_or_adult:
                     await message.channel.send(content = 'This message has been edited due to the presence of adult or violent content. The image(s) have been blurred or deleted. Deleted photos will not be relinked.')
-                await message.channel.send(content=original_content, files=blurred_images)
+                await message.channel.send(content=new_content, files=blurred_images)
                 await message.channel.send('Original Image(s) linked below:\n' + links)
             except discord.HTTPException as e:
                 logger.error(f"Error sending message: {e}")

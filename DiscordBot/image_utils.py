@@ -7,6 +7,9 @@ from PIL import Image, ImageFilter, UnidentifiedImageError
 import discord
 from urllib.parse import urlparse
 from google_cloud import detect_safe_search
+from skimage import io as skio, img_as_ubyte
+from skimage.filters import gaussian
+import numpy as np
 
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
@@ -72,19 +75,20 @@ def process_image_data(image_data, filename, image_url):
         # Check if image is a deepfake
         is_deepFake, error_message = is_deepfake(image_url)
         
-        if is_deepFake or not is_deepFake:
+        if is_deepFake:
             logger.info("Deepfake Detected")
             # Apply a blur filter
             
             adult, violence = detect_safe_search(image_data)
+            
             if adult == 'VERY_LIKELY' or violence == 'VERY_LIKELY':
                 logger.info("Adult content detected")
                 return None, True
             if adult == 'LIKELY' or violence == 'LIKELY':
-                print('here')
-                blurred_image = image.filter(ImageFilter.GaussianBlur(15))
-                logger.info('Blurred image')
-
+                
+                blurred_image = image.copy()
+                blurred_image = blurred_image.filter(ImageFilter.GaussianBlur(15))
+                
                 # Save the blurred image to a BytesIO object
                 blurred_image_bytes = io.BytesIO()
                 blurred_image.save(blurred_image_bytes, format=image.format)

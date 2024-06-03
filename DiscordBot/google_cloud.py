@@ -11,7 +11,7 @@ def detect_safe_search(image):
     client = vision.ImageAnnotatorClient()
 
     # with open(image, "rb") as image_file:
-    #     content = image_file.read()
+    #     image = image_file.read()
     image = vision.Image(content=image)
     response = client.safe_search_detection(image=image)
     safe = response.safe_search_annotation
@@ -40,7 +40,6 @@ def detect_safe_search(image):
         )
     
     return likelihood_name[safe.adult], likelihood_name[safe.violence]
-# test = 'brutality1.png'
+# test = 'adult2.png'
+# test = Image.open(io.BytesIO(open(test, 'rb').read()))
 # detect_safe_search(test)
-# test = Image.open(io.BytesIO(test))
-
