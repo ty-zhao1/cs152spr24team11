@@ -12,7 +12,7 @@ from moderator import ModReport
 from PIL import Image, ImageFilter, UnidentifiedImageError
 import io
 from urllib.parse import urlparse
-from image_helpers import *
+from DiscordBot.image_utils import *
 
 
 # Set up logging to the console
