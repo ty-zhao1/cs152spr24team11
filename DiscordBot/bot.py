@@ -12,8 +12,8 @@ from moderator import ModReport
 from PIL import Image, ImageFilter, UnidentifiedImageError
 import io
 from urllib.parse import urlparse
-from DiscordBot.image_utils import *
-
+from image_utils import *
+from copy import deepcopy
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -78,6 +78,7 @@ class ModBot(discord.Client):
             return
         # await self.blur_image(message)
         # Check if this message was sent in a server ("guild") or if it's a DM
+        
         if message.guild and message.guild.id in self.mod_channels:
             await self.handle_mod_message(message)
         if message.guild:
@@ -168,12 +169,16 @@ class ModBot(discord.Client):
         # Only handle messages sent in the "group-#" channel
         if not message.channel.name == f'group-{self.group_num}':
             return
-
-        # Forward the message to the mod channel
         mod_channel = self.mod_channels[message.guild.id]
-        await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
-        scores = self.eval_text(message.content)
-        await mod_channel.send(self.code_format(scores))
+        package = await self.eval_text(message)
+        if package:
+            changed, delete = package
+        # # Forward the message to the mod channel
+        # mod_channel = self.mod_channels[message.guild.id]
+        # await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
+        # scores = self.eval_text(message.content)
+        # await mod_channel.send(self.code_format(scores))
+
     
     async def handle_mod_message(self, message):
         # will handle the moderators' decisions
@@ -182,6 +187,9 @@ class ModBot(discord.Client):
         
         author_id = message.author.id
         author = message.author
+        
+        if message.author.id == self.user.id:
+            return
 
         # Only respond to messages if they're part of a reporting flow
         if author_id not in self.mod_reports and not message.content.startswith(ModReport.START_KEYWORD):
@@ -203,9 +211,6 @@ class ModBot(discord.Client):
             await message.channel.send("I'm sorry, I didn't understand that command. Please type `start` and then `help` for more information.")
         
         if self.mod_reports[author_id].report_complete():
-            # print(self.awaiting_mod_decisions)
-            # print(self.mod_reports[author_id].abuse_type, self.mod_reports[author_id].report_no)
-            logger.info('HERE2')
             self.awaiting_mod_decisions[self.caseno_to_info[self.mod_reports[author_id].report_no][-2]].pop(self.mod_reports[author_id].report_no)
             self.caseno_to_info.pop(self.mod_reports[author_id].report_no)
             if self.most_recent[5] == self.mod_reports[author_id].report_no:
@@ -214,12 +219,10 @@ class ModBot(discord.Client):
                 for key in self.caseno_to_info:
                     if not self.most_recent or int(self.caseno_to_info[key][-1][1:]) > int(self.most_recent[-1][1:]):
                         self.most_recent = self.caseno_to_info[key]
-            print(self.mod_reports[author_id].blur)
+
             if self.mod_reports[author_id].delete:
-                logger.info('HERE1')
                 await self.mod_reports[author_id].message.delete()
             if self.mod_reports[author_id].blur:
-                logger.info("HERE3")
                 await blur_all_images(self.mod_reports[author_id].message)
             self.mod_reports.pop(author_id)
         
@@ -227,24 +230,18 @@ class ModBot(discord.Client):
             self.mod_reports.pop(author_id)
             
 
-    
-    def eval_text(self, message):
+    async def eval_text(self, message):
         ''''
         TODO: Once you know how you want to evaluate messages in your channel, 
         insert your code here! This will primarily be used in Milestone 3. 
         '''
-        return message
+        # original = deepcopy(message)
+        changed, delete = await self.auto_handle(message)
+        
+        return changed, delete
     
-
-    def code_format(self, text):
-        ''''
-        TODO: Once you know how you want to show that a message has been 
-        evaluated, insert your code here for formatting the string to be 
-        shown in the mod channel. 
-        '''
-        return "Evaluated: '" + text+ "'"
     
-    async def blur_image(self, message):
+    async def auto_handle(self, message):
         """
         This function will blur the image present in a message.
         """
@@ -256,6 +253,10 @@ class ModBot(discord.Client):
         if not message.attachments and not urls:
             logger.info('No attachments or urls found')
             return None
+        
+        violent_or_adult = False
+        edited = False
+        delete = False
         
         original_content = message.content
         blurred_images = []
@@ -270,11 +271,14 @@ class ModBot(discord.Client):
                 try:
                 # Get the image data from the attachment
                     image_data = await attachment.read()
-                    discord_file = process_image_data(image_data, attachment.filename, attachment.url)
+                    discord_file, change = process_image_data(image_data, attachment.filename, attachment.url)
+                    edited = edited or change
                     if discord_file:
                         blurred_images.append(discord_file)
                         original_image_urls.append(attachment.url)
                         logger.info('Created discord file and appended image URL')
+                    else:
+                        violent_or_adult = True
                 except Exception as e:
                     logger.error(f"Error processing attachment: {e}")
 
@@ -288,11 +292,14 @@ class ModBot(discord.Client):
                     parsed_url = urlparse(url)
                     # filename = url.split("/")[-1]
                     filename = parsed_url.path.split("/")[-1] if parsed_url.path.split("/")[-1] else f'image.{extension}'
-                    discord_file = process_image_data(image_data, filename, url)
+                    discord_file, change = process_image_data(image_data, filename, url)
+                    edited = edited or change
                     if discord_file:
                         blurred_images.append(discord_file)
                         original_image_urls.append(url)
                         logger.info('Created discord file and appended image URL')
+                    else:
+                        violent_or_adult = True
                 except requests.exceptions.RequestException as e:
                     logger.error(f"Error downloading image from URL: {e}")
        
@@ -300,14 +307,16 @@ class ModBot(discord.Client):
         for url in original_image_urls:
             obfuscated_url = obfuscate_url(url)
             original_content = original_content.replace(url, obfuscated_url)
-        
-        if blurred_images:
+        # print('here5')
+        if edited and (blurred_images or violent_or_adult):
+            print('deleting message')
             try:
                 await message.delete()
             except discord.HTTPException as e:
                 logger.error(f"Error deleting message: {e}")
                 return
             # print('Deleted message')
+            delete = True
             logger.info('Deleted message')
             links = '\n'.join([f"[Image {i+1}](<{url}>)" for i, url in enumerate(original_image_urls)])
             # for url in original_image_urls:
@@ -315,14 +324,24 @@ class ModBot(discord.Client):
             # Send the blurred images with the original message content in the same channel
             try:
                 await message.channel.send(content=original_author_info)
+                if violent_or_adult:
+                    await message.channel.send(content = 'This message has been edited due to the presence of adult or violent content. The image(s) have been blurred or deleted. Deleted photos will not be relinked.')
                 await message.channel.send(content=original_content, files=blurred_images)
                 await message.channel.send('Original Image(s) linked below:\n' + links)
             except discord.HTTPException as e:
                 logger.error(f"Error sending message: {e}")
-                return
+                return True, delete
             # print('Sent message')
             logger.info('Sent message')
+        return violent_or_adult or edited, delete
 
+    def code_format(self, text):
+        ''''
+        TODO: Once you know how you want to show that a message has been 
+        evaluated, insert your code here for formatting the string to be 
+        shown in the mod channel. 
+        '''
+        return "Evaluated: '" + text+ "'"
 
 client = ModBot()
 client.run(discord_token)

@@ -6,6 +6,7 @@ import io
 from PIL import Image, ImageFilter, UnidentifiedImageError
 import discord
 from urllib.parse import urlparse
+from google_cloud import detect_safe_search
 
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
@@ -64,26 +65,37 @@ def is_image_url(url):
 def process_image_data(image_data, filename, image_url):
     try:
         image = Image.open(io.BytesIO(image_data))
+        # print(type(image))
+        # image = image_data
         logger.info('Opened image')
 
         # Check if image is a deepfake
         is_deepFake, error_message = is_deepfake(image_url)
         
-        if is_deepFake:
+        if is_deepFake or not is_deepFake:
             logger.info("Deepfake Detected")
             # Apply a blur filter
-            blurred_image = image.filter(ImageFilter.GaussianBlur(15))
-            logger.info('Blurred image')
+            
+            adult, violence = detect_safe_search(image_data)
+            if adult == 'VERY_LIKELY' or violence == 'VERY_LIKELY':
+                logger.info("Adult content detected")
+                return None, True
+            if adult == 'LIKELY' or violence == 'LIKELY':
+                print('here')
+                blurred_image = image.filter(ImageFilter.GaussianBlur(15))
+                logger.info('Blurred image')
 
-            # Save the blurred image to a BytesIO object
-            blurred_image_bytes = io.BytesIO()
-            blurred_image.save(blurred_image_bytes, format=image.format)
-            blurred_image_bytes.seek(0)
-            logger.info('Saved image')
+                # Save the blurred image to a BytesIO object
+                blurred_image_bytes = io.BytesIO()
+                blurred_image.save(blurred_image_bytes, format=image.format)
+                blurred_image_bytes.seek(0)
+                logger.info('Saved image')
 
-            # Create a discord.File from the blurred image
-            discord_file = discord.File(fp=blurred_image_bytes, filename=f'blurred_{filename}', spoiler=False)
-            return discord_file
+                # Create a discord.File from the blurred image
+                discord_file = discord.File(fp=blurred_image_bytes, filename=f'blurred_{filename}', spoiler=False)
+                return discord_file, True
+            else:
+                return discord.File(fp=io.BytesIO(image_data), filename=filename, spoiler=False), False
         logger.error(error_message)
     except UnidentifiedImageError:
         logger.error(f"Could not identify image file: {filename}")
