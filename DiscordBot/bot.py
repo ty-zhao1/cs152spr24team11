@@ -272,8 +272,6 @@ class ModBot(discord.Client):
         original_author = message.author
         original_author_info = f"Originally sent by {original_author.display_name} ({original_author.mention}). URL's have been obfuscated."
         
-        
-
         # Check for deepfake images in attachments
         for attachment in message.attachments:
             if any(attachment.filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'gif']):
@@ -321,8 +319,6 @@ class ModBot(discord.Client):
             obfuscated_url = obfuscate_url(url)
             new_content = original_content.replace(url, obfuscated_url)
 
-        
-        
         if edited and (blurred_images or violent_or_adult):
             delete = True
             logger.info('Deleted message')
