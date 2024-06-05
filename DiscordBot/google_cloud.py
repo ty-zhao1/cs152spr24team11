@@ -40,6 +40,6 @@ def detect_safe_search(image):
         )
     
     return likelihood_name[safe.adult], likelihood_name[safe.violence]
-# test = 'adult2.png'
+# test = 'brutality1.png'
 # test = Image.open(io.BytesIO(open(test, 'rb').read()))
 # detect_safe_search(test)

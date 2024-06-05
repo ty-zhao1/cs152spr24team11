@@ -51,7 +51,6 @@ def is_deepfake(image_url):
 def extract_urls(message_content):
     url_pattern = re.compile(r'(https?://[^\s]+)')
     urls = url_pattern.findall(message_content)
-    print(urls)
     return urls
 
 def is_image_url(url):

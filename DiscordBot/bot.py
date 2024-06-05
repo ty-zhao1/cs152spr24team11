@@ -47,13 +47,16 @@ class ModBot(discord.Client):
         self.most_recent = None
         self.deepfake_urls = []
         self.deepfake_images = []
+        
+        self.mod_channel = None
 
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
         for guild in self.guilds:
             print(f' - {guild.name}')
         print('Press Ctrl-C to quit.')
-
+        
+        self.mod_channel = discord.utils.get(guild.text_channels, name = 'group-11-mod')
         # Parse the group number out of the bot's name
         match = re.search('[gG]roup (\d+) [bB]ot', self.user.name)
         if match:
@@ -66,6 +69,7 @@ class ModBot(discord.Client):
             for channel in guild.text_channels:
                 if channel.name == f'group-{self.group_num}-mod':
                     self.mod_channels[guild.id] = channel
+                    print(channel)
         
 
     async def on_message(self, message):
@@ -81,9 +85,24 @@ class ModBot(discord.Client):
         
         if message.guild and message.guild.id in self.mod_channels:
             await self.handle_mod_message(message)
+        
         if message.guild:
-            # print(self.mod_channels[message.guild.id])
-            await self.handle_channel_message(message)
+            package = await self.handle_channel_message(message)
+            # if changed or deleted, send the message to the mod channel
+            if package:
+                start = '=' * 20 + '\n'
+                start += f'The following message had images blurred or deleted due to automated moderation:\n'
+                author = f'Author: {message.author.display_name} ({message.author.mention})\n'
+                content = f'Content: {message.content}\n'
+                
+                await self.mod_channel.send(start + author + content)
+                if message.attachments:
+                    for attachment in message.attachments:
+                        await self.mod_channel.send(file = await attachment.to_file())
+                
+                await self.mod_channel.send('Please review the message and take appropriate action.\n') 
+                await self.mod_channel.send('=' * 20)
+                    
         else:
             await self.handle_dm(message)
 
@@ -169,21 +188,7 @@ class ModBot(discord.Client):
         # Only handle messages sent in the "group-#" channel
         if not message.channel.name == f'group-{self.group_num}':
             return
-        # await message.delete()
-        mod_channel = self.mod_channels[message.guild.id]
-        package = await self.eval_text(message)
-        if package:
-            changed, delete = package
-        #     if delete:
-        #         try:
-        #             await message.delete()
-        #         except discord.HTTPException as e:
-        #             logger.error(f"Error deleting message: {e}")
-        # # Forward the message to the mod channel
-        # mod_channel = self.mod_channels[message.guild.id]
-        # await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
-        # scores = self.eval_text(message.content)
-        # await mod_channel.send(self.code_format(scores))
+        return await self.eval_text(message)
 
     
     async def handle_mod_message(self, message):
@@ -227,7 +232,6 @@ class ModBot(discord.Client):
                         self.most_recent = self.caseno_to_info[key]
 
             if self.mod_reports[author_id].delete:
-                print('here deleting for no reason')
                 await self.mod_reports[author_id].message.delete()
             if self.mod_reports[author_id].blur:
                 await blur_all_images(self.mod_reports[author_id].message)
@@ -255,11 +259,11 @@ class ModBot(discord.Client):
 
         urls = extract_urls(message.content)
         if message.author.id == self.user.id:
-            return None
+            return False
 
         if not message.attachments and not urls:
             logger.info('No attachments or urls found')
-            return None
+            return False
         
         violent_or_adult = False
         edited = False
@@ -278,7 +282,6 @@ class ModBot(discord.Client):
                 try:
                 # Get the image data from the attachment
                     image_data = await attachment.read()
-                    print('deleting message')
                     
                     discord_file, change = process_image_data(image_data, attachment.filename, attachment.url)
                     
@@ -300,7 +303,6 @@ class ModBot(discord.Client):
                     # Get the image data from the URL
                     image_data = requests.get(url).content
                     parsed_url = urlparse(url)
-                    # filename = url.split("/")[-1]
                     filename = parsed_url.path.split("/")[-1] if parsed_url.path.split("/")[-1] else f'image.{extension}'
                     discord_file, change = process_image_data(image_data, filename, url)
                     edited = edited or change
@@ -314,13 +316,13 @@ class ModBot(discord.Client):
                     logger.error(f"Error downloading image from URL: {e}")
        
         
+        new_content = original_content
         # Obfuscate deepfake urls            
         for url in original_image_urls:
             obfuscated_url = obfuscate_url(url)
             new_content = original_content.replace(url, obfuscated_url)
 
         if edited and (blurred_images or violent_or_adult):
-            delete = True
             logger.info('Deleted message')
             links = '\n'.join([f"[Image {i+1}](<{url}>)" for i, url in enumerate(original_image_urls)])
             
@@ -342,10 +344,9 @@ class ModBot(discord.Client):
                 await message.channel.send('Original Image(s) linked below:\n' + links)
             except discord.HTTPException as e:
                 logger.error(f"Error sending message: {e}")
-                return True, delete
-            # print('Sent message')
+                return True
             logger.info('Sent message')
-        return violent_or_adult or edited, delete
+        return violent_or_adult or edited
 
     def code_format(self, text):
         ''''
