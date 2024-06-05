@@ -290,8 +290,10 @@ class ModBot(discord.Client):
                         blurred_images.append(discord_file)
                         original_image_urls.append(attachment.url)
                         logger.info('Created discord file and appended image URL')
-                    else:
+                    elif  (not discord_file and change):
                         violent_or_adult = True
+                    else:
+                        pass
                 except Exception as e:
                     logger.error(f"Error processing attachment: {e}")
         
@@ -301,17 +303,22 @@ class ModBot(discord.Client):
             if is_image:
                 try:
                     # Get the image data from the URL
+                    if "drive.google.com" in url:
+                        file_id = url.split('/d/')[1].split('/')[0]
+                        url = f"https://drive.google.com/uc?export=download&id={file_id}"
                     image_data = requests.get(url).content
                     parsed_url = urlparse(url)
                     filename = parsed_url.path.split("/")[-1] if parsed_url.path.split("/")[-1] else f'image.{extension}'
                     discord_file, change = process_image_data(image_data, filename, url)
                     edited = edited or change
-                    if discord_file:
+                    if discord_file or (not discord_file and change):
                         blurred_images.append(discord_file)
                         original_image_urls.append(url)
                         logger.info('Created discord file and appended image URL')
-                    else:
+                    elif (not discord_file and change):
                         violent_or_adult = True
+                    else:
+                        pass
                 except requests.exceptions.RequestException as e:
                     logger.error(f"Error downloading image from URL: {e}")
        

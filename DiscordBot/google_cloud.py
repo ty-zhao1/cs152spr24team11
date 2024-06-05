@@ -39,7 +39,7 @@ def detect_safe_search(image):
             "https://cloud.google.com/apis/design/errors".format(response.error.message)
         )
     
-    return likelihood_name[safe.adult], likelihood_name[safe.violence]
+    return likelihood_name[safe.adult], likelihood_name[safe.violence], likelihood_name[safe.spoof]
 # test = 'brutality1.png'
 # test = Image.open(io.BytesIO(open(test, 'rb').read()))
 # detect_safe_search(test)

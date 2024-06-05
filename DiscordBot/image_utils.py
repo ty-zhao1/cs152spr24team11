@@ -23,13 +23,21 @@ def is_deepfake(image_url):
     """
 
     api_url = "https://api.aiornot.com/v1/reports/image"
-    AIORNOT_API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjM1MGUxYjA3LWNlYjctNDMxNS1hNjUyLTU2Mjg0YTk2MzBhMyIsInVzZXJfaWQiOiIzNTBlMWIwNy1jZWI3LTQzMTUtYTY1Mi01NjI4NGE5NjMwYTMiLCJhdWQiOiJhY2Nlc3MiLCJleHAiOjAuMH0.Hyg8WHNEQTi328xxGkM-KrZkoNkopmaJcX9L95iD0qM'
+    AIORNOT_API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI3NWZmYWJlLWEyNWYtNGU1Yy05N2QyLTZhY2QzNzk5YmJjNiIsInVzZXJfaWQiOiIyNzVmZmFiZS1hMjVmLTRlNWMtOTdkMi02YWNkMzc5OWJiYzYiLCJhdWQiOiJhY2Nlc3MiLCJleHAiOjAuMH0.JXKcGlh2M57j7ozArjntUD7gYGgxtB2nKNZdGdeCsdY'
 
     headers = {
         'Authorization': f'Bearer {AIORNOT_API_KEY}',
         'Content-Type': 'application/json',
             'Accept': 'application/json'
     }
+    
+    # print('here1')
+    # if "drive.google.com" in image_url:
+    #     print('here2')
+    #     file_id = image_url.split('/d/')[1].split('/')[0]
+    #     print('here3')
+    #     image_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    #     print('here4')
 
     payload = json.dumps({
         "object": image_url
@@ -51,14 +59,18 @@ def is_deepfake(image_url):
 def extract_urls(message_content):
     url_pattern = re.compile(r'(https?://[^\s]+)')
     urls = url_pattern.findall(message_content)
+    # print(urls)
     return urls
 
 def is_image_url(url):
+    if 'drive.google.com' in url:
+        return True, 'png'
     try:
         response = requests.head(url, allow_redirects=True)
         content_type = response.headers.get('Content-Type')
         if content_type and content_type.startswith('image/'):
             return True, content_type.split('/')[-1]  # Return True and the image extension
+        print('not an image')
         return False, None
     except requests.RequestException as e:
         logger.error(f"Error checking URL content type: {e}")
@@ -78,12 +90,12 @@ def process_image_data(image_data, filename, image_url):
             logger.info("Deepfake Detected")
             # Apply a blur filter
             
-            adult, violence = detect_safe_search(image_data)
+            adult, violence, spoofed = detect_safe_search(image_data)
             
-            if adult == 'VERY_LIKELY' or violence == 'VERY_LIKELY':
+            if adult == 'VERY_LIKELY' or violence == 'VERY_LIKELY' or spoofed == 'VERY_LIKELY':
                 logger.info("Adult content detected")
                 return None, True
-            if adult == 'LIKELY' or violence == 'LIKELY':
+            if adult == 'LIKELY' or violence == 'LIKELY' or spoofed == 'LIKELY' or spoofed == 'POSSIBLE':
                 
                 blurred_image = image.copy()
                 blurred_image = blurred_image.filter(ImageFilter.GaussianBlur(15))
@@ -99,12 +111,12 @@ def process_image_data(image_data, filename, image_url):
                 return discord_file, True
             else:
                 return discord.File(fp=io.BytesIO(image_data), filename=filename, spoiler=False), False
-        logger.error(error_message)
+        # logger.error(error_message)
     except UnidentifiedImageError:
         logger.error(f"Could not identify image file: {filename}")
     except Exception as e:
         logger.error(f"Error processing image: {e}")
-    return None
+    return None, False
 
 def obfuscate_url(url):
     return url.replace('.', '[dot]').replace('http', 'hxxp')
