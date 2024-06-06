@@ -49,6 +49,7 @@ class ModBot(discord.Client):
         self.deepfake_images = []
         
         self.mod_channel = None
+        self.main_channel = None
 
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
@@ -57,6 +58,7 @@ class ModBot(discord.Client):
         print('Press Ctrl-C to quit.')
         
         self.mod_channel = discord.utils.get(guild.text_channels, name = 'group-11-mod')
+        self.main_channel = discord.utils.get(guild.text_channels, name = 'group-11')
         # Parse the group number out of the bot's name
         match = re.search('[gG]roup (\d+) [bB]ot', self.user.name)
         if match:
@@ -80,7 +82,6 @@ class ModBot(discord.Client):
         # Ignore messages from the bot 
         if message.author.id == self.user.id:
             return
-        # await self.blur_image(message)
         # Check if this message was sent in a server ("guild") or if it's a DM
         
         if message.guild and message.guild.id in self.mod_channels:
@@ -159,18 +160,8 @@ class ModBot(discord.Client):
                     embed = msg.embeds[0]
                     start_message += 'Embed associated with the message attached:\n'
                     image = embed
-                # end_message = f'MODERATORS PLEASE SELECT 1. Ignore 2. Warn 3. Delete 4. Ban 5. Delete + Warn 6. Delete + Ban\n'
                 end_message = '****REPORT END****\n'
                 end_message += '=' * 20
-                """
-                end_message += 'Please type the number corresponding to the type of abuse you see in the message.\n'
-                end_message += '1. Imminent Danger\n'
-                end_message += '2. Spam\n'
-                end_message += '3. Nude or Graphic Media\n'
-                end_message += '4. Disinformation\n'
-                end_message += '5. Hate speech/harrassment\n'
-                end_message += '6. Other(including including satire, memes, commentary, couterspeech, etc.)'
-                """
                 
                 # maps from abuse type ot report number to a tuple of the starting message we send to the mod server, images, the ending message for the mod server, and the actual message in question.
                 # the last two are for ease of cleaning up the report dicionary once it is handled.
@@ -189,7 +180,6 @@ class ModBot(discord.Client):
         if not message.channel.name == f'group-{self.group_num}':
             return
         return await self.eval_text(message)
-
     
     async def handle_mod_message(self, message):
         # will handle the moderators' decisions
@@ -197,7 +187,6 @@ class ModBot(discord.Client):
             return
         
         author_id = message.author.id
-        author = message.author
         
         if message.author.id == self.user.id:
             return
@@ -235,26 +224,36 @@ class ModBot(discord.Client):
                 await self.mod_reports[author_id].message.delete()
             if self.mod_reports[author_id].blur:
                 await blur_all_images(self.mod_reports[author_id].message)
+            if self.mod_reports[author_id].disinformation:
+                curr_message = self.mod_reports[author_id].message
+                guild_id = curr_message.guild.id
+                channel_id = curr_message.channel.id
+                message_id = curr_message.id
+                message_link = f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
+                await self.main_channel.send(f"Possible disinformation detected in message: {message_link}")
+                
             self.mod_reports.pop(author_id)
         
         elif self.mod_reports[author_id].report_cancelled():
             self.mod_reports.pop(author_id)
             
-
     async def eval_text(self, message):
-        ''''
-        TODO: Once you know how you want to evaluate messages in your channel, 
-        insert your code here! This will primarily be used in Milestone 3. 
         '''
-        # original = deepcopy(message)
+        This wrapper function calls the auto_handle function and returns a package containing info about the message.
+        
+        Returns bool: True if the message was edited or deleted, False otherwise.
+        '''
         package = await self.auto_handle(message)
         
         return package
     
-    
     async def auto_handle(self, message):
         """
-        This function will blur the image present in a message.
+        This function takes in a message object and checks if it contains any deepfake images or adult/violent content.
+        
+        If the message contains deepfake images or adult/violent content, the message will be deleted and the images will be blurred or deleted.
+        
+        Returns bool: True if the message was edited or deleted, False otherwise.
         """
 
         urls = extract_urls(message.content)
@@ -267,7 +266,6 @@ class ModBot(discord.Client):
         
         violent_or_adult = False
         edited = False
-        delete = False
         
         original_content = message.content
         blurred_images = []
@@ -321,7 +319,6 @@ class ModBot(discord.Client):
                         pass
                 except requests.exceptions.RequestException as e:
                     logger.error(f"Error downloading image from URL: {e}")
-       
         
         new_content = original_content
         # Obfuscate deepfake urls            
@@ -354,14 +351,6 @@ class ModBot(discord.Client):
                 return True
             logger.info('Sent message')
         return violent_or_adult or edited
-
-    def code_format(self, text):
-        ''''
-        TODO: Once you know how you want to show that a message has been 
-        evaluated, insert your code here for formatting the string to be 
-        shown in the mod channel. 
-        '''
-        return "Evaluated: '" + text+ "'"
 
 client = ModBot()
 client.run(discord_token)

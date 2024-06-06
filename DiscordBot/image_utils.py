@@ -20,6 +20,7 @@ logger.addHandler(handler)
 def is_deepfake(image_url):
     """
     This function makes an API call to AIORNOT which checks if the image in the passed url is a deepfake
+    Returns tuple(bool, str) where the bool indicates if the image is a deepfake and the str is an error message if any
     """
 
     api_url = "https://api.aiornot.com/v1/reports/image"
@@ -30,15 +31,6 @@ def is_deepfake(image_url):
         'Content-Type': 'application/json',
             'Accept': 'application/json'
     }
-    
-    # print('here1')
-    # if "drive.google.com" in image_url:
-    #     print('here2')
-    #     file_id = image_url.split('/d/')[1].split('/')[0]
-    #     print('here3')
-    #     image_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    #     print('here4')
-
     payload = json.dumps({
         "object": image_url
     })
@@ -57,12 +49,21 @@ def is_deepfake(image_url):
     return is_deep_fake, None
 
 def extract_urls(message_content):
+    """
+    This helper function takes in a message content and returns a list of URLs found in the message
+    
+    Returns list[str] of URLs found in the message
+    """
     url_pattern = re.compile(r'(https?://[^\s]+)')
     urls = url_pattern.findall(message_content)
-    # print(urls)
     return urls
 
 def is_image_url(url):
+    """
+    This helper function takes in a url string and returns a boolean indicating whether the URL points to an image
+    
+    Returns tuple(bool, str) where the bool indicates if the URL points to an image and the str is the image extension
+    """
     if 'drive.google.com' in url:
         return True, 'png'
     try:
@@ -77,10 +78,15 @@ def is_image_url(url):
         return False, None
     
 def process_image_data(image_data, filename, image_url):
+    """
+    This funciton takes in image data, filename and image url
+    It checks if the image is a deepfake and if it is adult or violent content
+    It will then blur or delete the image
+    
+    Returns tuple(discord.File, bool) where the bool indicates if the image has been modified
+    """
     try:
         image = Image.open(io.BytesIO(image_data))
-        # print(type(image))
-        # image = image_data
         logger.info('Opened image')
 
         # Check if image is a deepfake
@@ -88,14 +94,13 @@ def process_image_data(image_data, filename, image_url):
         
         if is_deepFake:
             logger.info("Deepfake Detected")
-            # Apply a blur filter
             
-            adult, violence, spoofed = detect_safe_search(image_data)
+            adult, violence, _ = detect_safe_search(image_data)
             
-            if adult == 'VERY_LIKELY' or violence == 'VERY_LIKELY' or spoofed == 'VERY_LIKELY':
+            if adult == 'VERY_LIKELY' or violence == 'VERY_LIKELY':
                 logger.info("Adult content detected")
                 return None, True
-            if adult == 'LIKELY' or violence == 'LIKELY' or spoofed == 'LIKELY' or spoofed == 'POSSIBLE':
+            if adult == 'LIKELY' or violence == 'LIKELY':
                 
                 blurred_image = image.copy()
                 blurred_image = blurred_image.filter(ImageFilter.GaussianBlur(15))
@@ -111,7 +116,6 @@ def process_image_data(image_data, filename, image_url):
                 return discord_file, True
             else:
                 return discord.File(fp=io.BytesIO(image_data), filename=filename, spoiler=False), False
-        # logger.error(error_message)
     except UnidentifiedImageError:
         logger.error(f"Could not identify image file: {filename}")
     except Exception as e:
@@ -119,9 +123,20 @@ def process_image_data(image_data, filename, image_url):
     return None, False
 
 def obfuscate_url(url):
+    """
+    This function takes in a URL and replaces the '.' with '[dot]' and 'http' with 'hxxp'
+    
+    Returns the obfuscated URL
+    """
     return url.replace('.', '[dot]').replace('http', 'hxxp')
 
 async def blur_all_images(message):
+    
+    """
+    This function takes in a discord message and blurs all images in the message
+    
+    Returns None
+    """
     
     urls = extract_urls(message.content)
         
@@ -141,7 +156,7 @@ async def blur_all_images(message):
             try:
             # Get the image data from the attachment
                 image_data = await attachment.read()
-                discord_file = process_image_data_old(image_data, attachment.filename)
+                discord_file = blur_image(image_data, attachment.filename)
                 if discord_file:
                     blurred_images.append(discord_file)
                     original_image_urls.append(attachment.url)
@@ -158,7 +173,7 @@ async def blur_all_images(message):
                 parsed_url = urlparse(url)
                 # filename = url.split("/")[-1]
                 filename = parsed_url.path.split("/")[-1] if parsed_url.path.split("/")[-1] else f'image.{extension}'
-                discord_file = process_image_data_old(image_data, filename)
+                discord_file = blur_image(image_data, filename)
                 if discord_file:
                     blurred_images.append(discord_file)
                     original_image_urls.append(url)
@@ -177,8 +192,6 @@ async def blur_all_images(message):
         # print('Deleted message')
         logger.info('Deleted message')
         links = '\n'.join([f"[Image {i+1}](<{url}>)" for i, url in enumerate(original_image_urls)])
-        # for url in original_image_urls:
-        #     original_content = original_content.replace(url, f"<{url}>")
         # Send the blurred images with the original message content in the same channel
         try:
             await message.channel.send(content=original_author_info)
@@ -189,9 +202,11 @@ async def blur_all_images(message):
             return
         # print('Sent message')
         logger.info('Sent message')
-        
 
-def process_image_data_old(image_data, filename):
+def blur_image(image_data, filename):
+    """
+    An older version of the
+    """
     try:
         image = Image.open(io.BytesIO(image_data))
         logger.info('Opened image')

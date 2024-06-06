@@ -3,8 +3,8 @@ import discord
 import re
 
 OPTIONS_MESSAGE_1 = 'Does this message contain imagery that is Harassment/Disinformation/Scam or Fraud/Immediate Danger? \nIf so, type 1. \nIf it contains AI-generated deepfakes of political content, please press 2.'
+
 OPTIONS_MESSAGE_2 = 'Please select the category that best reflects the image and message content:\n'
-# OPTIONS_MESSAGE_2 += '1. Satire, memes, political commentary\n2. Disinformation\n3. Nudity/Graphic\n4. Imminent danger\n5. Financial Spam\n6. Other spam\n7. Hate speech/harassment\n8. Other'
 OPTIONS_MESSAGE_2 += 'You can select from\n1. Imminent Danger\n2. Spam (financial or other) \n3. Nude or Graphic Media\n4. Disinformation\n5. Hate speech/harrassment\n6. Other (including satire, memes, commentary, couterspeech, etc.)\nPlease type the number of the content type you see.\nIf the image has no people in it or is not harmful, then please press 6'
 
 NUDITY_OPTIONS_MESSAGE = 'Is this content\n1. Of you (revenge porn, sextortion, etc)\n2. Of a minor\n3. Used for harassment\n4. Other'
@@ -14,12 +14,9 @@ END_MESSAGE = 'This content is considered within the rules of the server. This r
 
 # these are displayed at the end of moderator reports for everything except for nudity report
 BOT_ACTIONS = {
-    # 1: ['Flagged content as AI generated. This report is considered processed and done!'],
+    1: ['The content has been removed and the authorities have been notified. This report is considered processed and done!'],
     4: ['Flagged content as AI generated. This report is considered processed and done!'],
     5: ['Flagged content as AI generated, and the author of the content has been assigned a strike. This report is considered processed and done!'],
-    1: ['The content has been removed and the authorities have been notified. This report is considered processed and done!'],
-    # 6: ['The content has been removed and the author has been assigned a strike. This report is considered processed and done!'],
-    # 5: ['The content has been removed, the user has been banned, and the authorities have been notified. This report is considered processed and done!'],
     6: ['This content is considered within the rules of the server. This report is considered processed and done!'],
 }
 
@@ -40,18 +37,9 @@ class State(Enum):
     REPORT_START = auto()
     AWAITING_COMMAND = auto()
     DEEPFAKE = auto()
-    # AWAITING_PEOPLE_STATE = auto()
     AWAITING_ABUSE_TYPE = auto()
     NUDITY_FLOW = auto()
-    
     REPORT_COMPLETE = auto()
-    # MESSAGE_IDENTIFIED = auto()
-    # REPORT_COMPLETE = auto()
-    
-    # AWAIT_CONTENT_TYPE = auto()
-    # AWAIT_SPECIFIC_TYPE = auto()
-    
-    # AWAIT_AI_REMOVAL = auto()
     REPORT_CANCELLED = auto()
     
 class ModReport:
@@ -74,6 +62,7 @@ class ModReport:
         self.report_no = None
         self.delete = False
         self.blur = False
+        self.disinformation = False
     
     async def handle_message(self, message, awaiting_mod_dict, caseno_to_info, most_recent):
         '''
@@ -105,7 +94,6 @@ class ModReport:
         if self.state == State.AWAITING_COMMAND:
             if message_content[0].upper() != 'RETRIEVE':
                 return_message = 'Invalid command. Please type RETRIEVE followed by a case number, \'MOST RECENT\' or \'HIGH PRIORITY\' to retrieve a case or EXECUTE followed by a case number, target, and action to close a case.'
-                # await message.channel.send(return_message)
                 return [return_message]
             
             elif len(message_content) == 1:
@@ -113,8 +101,6 @@ class ModReport:
             
             elif message_content[0].upper() == 'RETRIEVE' and 'MOST RECENT' not in message.content.upper() and 'HIGH PRIORITY' not in message.content.upper():
                 try:
-                    # self.state = State.AWAITING_PEOPLE_STATE
-                    
                     case_number = int(message_content[1])
                     case_number = '#' + str(case_number)
                     if case_number in caseno_to_info:
@@ -128,7 +114,6 @@ class ModReport:
                             out.append(await package[1].to_file())
                         out.append(package[2])
                         out.append(OPTIONS_MESSAGE_1)
-                        #out.append(OPTIONS_MESSAGE_2) - Selena edit
                         return out
                     else:
                         return ['Case not found.']
@@ -136,7 +121,6 @@ class ModReport:
                     return ['Invalid case number.']
             elif message_content[0].upper() == 'RETRIEVE' and 'MOST RECENT' in message.content.upper():
                 if most_recent:
-                    # self.state = State.AWAITING_ABUSE_TYPE
                     self.state = State.DEEPFAKE
                     out = []
                     package = most_recent
@@ -146,7 +130,6 @@ class ModReport:
                     if package[1]:
                         out.append(await package[1].to_file())
                     out.append(package[2])
-                    # out.append(OPTIONS_MESSAGE_2)
                     out.append(OPTIONS_MESSAGE_1)
                     return out
                 else:
@@ -159,13 +142,11 @@ class ModReport:
                         package = awaiting_mod_dict[key][min(awaiting_mod_dict[key].keys())]
                         self.report_no = package[-1]
                         self.message = package[3]
-                        # self.state = State.AWAITING_ABUSE_TYPE
                         self.state = State.DEEPFAKE
                         out.append(package[0])
                         if package[1]:
                             out.append(await package[1].to_file())
                         out.append(package[2])
-                        # out.append(OPTIONS_MESSAGE_2)
                         out.append(OPTIONS_MESSAGE_1)
                         return out
                 else:
@@ -206,8 +187,9 @@ class ModReport:
                 return BOT_ACTIONS[curr_abuse]
             else:
                 if self.abuse_type == 1:
-                    # await message.delete()
                     self.delete = True
+                elif self.abuse_type == 4 or self.abuse_type == 5:
+                    self.disinformation = True
                 self.state = State.REPORT_COMPLETE
                 curr_abuse = self.abuse_type
                 return BOT_ACTIONS[curr_abuse]
@@ -220,7 +202,6 @@ class ModReport:
             
             if 1 <= selection < 4:
                 self.delete = True
-            
             
             if self.abuse_type == 3 and selection < 1 or selection > 4:
                 return ["Please type a valid number of the content type you see."]
@@ -235,11 +216,8 @@ class ModReport:
                 return ["Please type a valid number of the content type you see."]
             elif self.abuse_type == 2:
                 self.state = State.REPORT_COMPLETE
-                # await message.delete()
                 self.delete = True
                 return SPAM_MESSAGE[selection]
-            # self.state = State.REPORT_COMPLETE
-            # return SPAM_MESSAGE[selection]
             
     def report_complete(self):
         return self.state == State.REPORT_COMPLETE
